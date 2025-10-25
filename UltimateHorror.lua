@@ -1,6 +1,7 @@
 -- ULTIMATE ROBLOX HORROR NIGHTMARE SCRIPT
 -- Place this in StarterPlayer > StarterPlayerScripts as a LocalScript
 -- WARNING: Extremely scary - includes stalking shadow entity, reality distortion, psychological horror
+-- The entity will hunt you down. If it catches you, you'll be POSSESSED and forced to jump to your death!
 -- Press "H" to trigger the NIGHTMARE MODE
 
 local UserInputService = game:GetService("UserInputService")
@@ -318,14 +319,87 @@ local function showWhisper(whisperText)
 	end)
 end
 
+-- Possession and death sequence
+local function possessionAndDeath(sounds, scareFrame, whisperText)
+	print("=================================")
+	print("YOU'VE BEEN CAUGHT...")
+	print("=================================")
+
+	-- Trigger possession jumpscare
+	sounds.scream:Play()
+	scareFrame.ImageTransparency = 0
+	scareFrame.BackgroundTransparency = 1
+	shakeCamera(40, 2)
+
+	-- Strobe effect
+	for i = 1, 8 do
+		scareFrame.ImageTransparency = 0
+		task.wait(0.06)
+		scareFrame.ImageTransparency = 1
+		task.wait(0.06)
+	end
+
+	-- Possession message
+	whisperText.Text = "I OWN YOU NOW"
+	whisperText.TextTransparency = 0
+	whisperText.Position = UDim2.new(0.1, 0, 0.45, 0)
+	whisperText.TextScaled = true
+	scareFrame.ImageTransparency = 0
+
+	task.wait(1.5)
+
+	-- Black out screen
+	scareFrame.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+	scareFrame.BackgroundTransparency = 0
+	scareFrame.ImageTransparency = 1
+	whisperText.TextTransparency = 1
+
+	task.wait(0.5)
+
+	-- POSSESSION: Make player jump really high
+	local humanoid = character:FindFirstChildOfClass("Humanoid")
+	if humanoid then
+		print("POSSESSED - FORCED JUMP")
+
+		-- Extreme upward velocity
+		local bodyVelocity = Instance.new("BodyVelocity")
+		bodyVelocity.MaxForce = Vector3.new(0, math.huge, 0)
+		bodyVelocity.Velocity = Vector3.new(0, 300, 0) -- Shoot up super fast
+		bodyVelocity.Parent = humanoidRootPart
+
+		-- Remove after a moment to let gravity take over
+		task.wait(1)
+		bodyVelocity:Destroy()
+
+		-- Wait for the fall and death
+		task.wait(3)
+
+		-- Force death
+		humanoid.Health = 0
+
+		print("=================================")
+		print("YOU FELL TO YOUR DEATH")
+		print("The nightmare has ended...")
+		print("Press 'H' if you dare to try again")
+		print("=================================")
+	end
+
+	return true
+end
+
 -- Shadow entity AI - stalks the player from behind
-local function updateShadowEntity(entity, bodyPosition, sounds, proximityWarning, heartbeatFrame)
+local function updateShadowEntity(entity, bodyPosition, sounds, proximityWarning, heartbeatFrame, scareFrame, whisperText)
 	local lastJumpscareTime = 0
+	local catchDistance = 8 -- Distance at which entity catches you
+	local aggressionLevel = 20 -- Starting distance
 
 	task.spawn(function()
 		while isNightmareActive and entity do
+			-- Get more aggressive over time (closer starting distance)
+			aggressionLevel = math.max(8, aggressionLevel - 0.1)
+
 			-- Position behind player at varying distances
-			local distance = math.random(20, 50)
+			local distance = math.random(aggressionLevel, 50)
 			local offsetAngle = math.rad(math.random(-45, 45))
 
 			-- Stay in shadows behind player
@@ -361,12 +435,20 @@ local function updateShadowEntity(entity, bodyPosition, sounds, proximityWarning
 				heartbeatFrame.BackgroundTransparency = 1
 			end
 
-			-- Occasionally get much closer for jump scare
-			if distanceToPlayer < 15 and tick() - lastJumpscareTime > 30 then
+			-- CHECK IF CAUGHT - This triggers possession
+			if distanceToPlayer < catchDistance then
+				-- PLAYER HAS BEEN CAUGHT!
+				possessionAndDeath(sounds, scareFrame, whisperText)
+				return -- Stop stalking
+			end
+
+			-- Occasionally lunge closer to try to catch player
+			if distanceToPlayer < 15 and tick() - lastJumpscareTime > 20 then
 				lastJumpscareTime = tick()
+				-- Lunge at player
 				bodyPosition.Position = humanoidRootPart.Position + humanoidRootPart.CFrame.LookVector * -5
 
-				-- Jumpscare after a delay
+				-- Warning scare
 				task.wait(0.5)
 				sounds.scream:Play()
 				shakeCamera(30, 1)
@@ -421,7 +503,7 @@ local function activateNightmare()
 	shadowEntity.Position = humanoidRootPart.Position + humanoidRootPart.CFrame.LookVector * -30 + Vector3.new(0, 2, 0)
 
 	-- Start entity stalking behavior
-	updateShadowEntity(shadowEntity, bodyPosition, sounds, proximityWarning, heartbeatFrame)
+	updateShadowEntity(shadowEntity, bodyPosition, sounds, proximityWarning, heartbeatFrame, scareFrame, whisperText)
 
 	-- Phase 3: Random horror events
 	task.spawn(function()
@@ -480,71 +562,42 @@ local function activateNightmare()
 		end
 	end)
 
-	-- Ultimate jumpscare after 60 seconds
-	task.wait(60)
+	-- Monitor for player death (from possession)
+	local humanoid = character:FindFirstChildOfClass("Humanoid")
+	if humanoid then
+		humanoid.Died:Connect(function()
+			-- Wait a moment for dramatic effect
+			task.wait(2)
 
-	-- FINAL CLIMAX JUMPSCARE
-	print("=================================")
-	print("IT'S HERE")
-	print("=================================")
+			-- Cleanup after death
+			isNightmareActive = false
 
-	-- Everything goes black
-	Lighting.Brightness = 0
-	Lighting.Ambient = Color3.fromRGB(0, 0, 0)
-	scareFrame.BackgroundTransparency = 0
-	staticOverlay.ImageTransparency = 0.5
+			-- Restore everything to normal
+			Lighting.Brightness = originalBrightness
+			Lighting.Ambient = originalAmbient
+			Lighting.ColorShift_Top = originalColorShift
+			Lighting.ClockTime = originalClockTime
 
-	task.wait(1)
+			-- Stop and clean up sounds
+			for _, sound in pairs(sounds) do
+				sound:Stop()
+				sound:Destroy()
+			end
 
-	-- MASSIVE JUMPSCARE
-	scareFrame.ImageTransparency = 0
-	scareFrame.BackgroundTransparency = 1
-	sounds.scream:Play()
-	shakeCamera(50, 2)
+			-- Remove entity
+			if shadowEntity then
+				shadowEntity:Destroy()
+			end
 
-	-- Strobe effect
-	for i = 1, 10 do
-		scareFrame.ImageTransparency = 0
-		task.wait(0.05)
-		scareFrame.ImageTransparency = 1
-		task.wait(0.05)
+			-- Remove GUI
+			if gui then
+				gui:Destroy()
+			end
+
+			print("Everything has returned to normal...")
+			print("But the horror is always waiting...")
+		end)
 	end
-
-	scareFrame.ImageTransparency = 0
-	whisperText.Text = "YOU ARE NOT SAFE"
-	whisperText.TextTransparency = 0
-	whisperText.TextScaled = true
-	whisperText.Position = UDim2.new(0.1, 0, 0.45, 0)
-
-	task.wait(3)
-
-	-- Fade out
-	TweenService:Create(scareFrame, TweenInfo.new(3), {ImageTransparency = 1, BackgroundTransparency = 1}):Play()
-	TweenService:Create(whisperText, TweenInfo.new(3), {TextTransparency = 1}):Play()
-	TweenService:Create(vignette, TweenInfo.new(3), {ImageTransparency = 1}):Play()
-
-	task.wait(3)
-
-	-- Cleanup
-	isNightmareActive = false
-
-	Lighting.Brightness = originalBrightness
-	Lighting.Ambient = originalAmbient
-	Lighting.ColorShift_Top = originalColorShift
-	Lighting.ClockTime = originalClockTime
-
-	for _, sound in pairs(sounds) do
-		sound:Stop()
-		sound:Destroy()
-	end
-
-	if shadowEntity then
-		shadowEntity:Destroy()
-	end
-
-	gui:Destroy()
-
-	print("The nightmare has ended... for now.")
 end
 
 -- Activation input
@@ -563,5 +616,10 @@ end)
 print("======================================")
 print("ULTIMATE HORROR SCRIPT LOADED")
 print("Press 'H' to begin the nightmare...")
+print("")
 print("WARNING: This will be terrifying")
+print("A shadow entity will hunt you down")
+print("If it catches you, you will be POSSESSED")
+print("You'll be forced to jump to your death")
+print("Try to survive... if you can")
 print("======================================")
