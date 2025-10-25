@@ -10,12 +10,26 @@ local TweenService = game:GetService("TweenService")
 local Players = game:GetService("Players")
 local Lighting = game:GetService("Lighting")
 local RunService = game:GetService("RunService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local player = Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
 local humanoidRootPart = character:WaitForChild("HumanoidRootPart")
 local camera = workspace.CurrentCamera
 local playerGui = player:WaitForChild("PlayerGui")
+
+-- Wait for RemoteEvents from server
+local remoteFolder = ReplicatedStorage:WaitForChild("HorrorRemotes", 10)
+local becomeGhostEvent, startPossessionEvent, completePossessionEvent, cancelPossessionEvent
+
+if remoteFolder then
+	becomeGhostEvent = remoteFolder:WaitForChild("BecomeGhost", 5)
+	startPossessionEvent = remoteFolder:WaitForChild("StartPossession", 5)
+	completePossessionEvent = remoteFolder:WaitForChild("CompletePossession", 5)
+	cancelPossessionEvent = remoteFolder:WaitForChild("CancelPossession", 5)
+else
+	warn("HorrorRemotes folder not found! Make sure server script is loaded.")
+end
 
 local isNightmareActive = false
 local shadowEntity = nil
@@ -339,7 +353,7 @@ local function becomeGhost()
 		shadowEntity = nil
 	end
 
-	-- Change lighting to ghost realm atmosphere
+	-- Change lighting to ghost realm atmosphere (client-side)
 	Lighting.Brightness = 0.3
 	Lighting.Ambient = Color3.fromRGB(50, 50, 70)
 	Lighting.ColorShift_Top = Color3.fromRGB(100, 100, 150)
@@ -356,50 +370,14 @@ local function becomeGhost()
 		end
 	end
 
-	-- Make character into ghost
-	for _, part in pairs(character:GetDescendants()) do
-		if part:IsA("BasePart") then
-			part.Transparency = 0.7
-			part.Material = Enum.Material.ForceField
-			part.CanCollide = false
-
-			-- Add ghostly effect
-			if not part:FindFirstChild("GhostEffect") then
-				local effect = Instance.new("ParticleEmitter")
-				effect.Name = "GhostEffect"
-				effect.Texture = "rbxasset://textures/particles/smoke_main.dds"
-				effect.Color = ColorSequence.new(Color3.fromRGB(200, 200, 255))
-				effect.Size = NumberSequence.new(0.5)
-				effect.Transparency = NumberSequence.new(0.6)
-				effect.Lifetime = NumberRange.new(1, 2)
-				effect.Rate = 10
-				effect.Speed = NumberRange.new(1)
-				effect.Parent = part
-			end
-		elseif part:IsA("Decal") or part:IsA("Texture") then
-			part.Transparency = 0.7
-		end
+	-- Tell server we became a ghost (server will handle visual transformation and prompts)
+	if becomeGhostEvent then
+		becomeGhostEvent:FireServer()
+	else
+		warn("Cannot become ghost - RemoteEvent not found!")
 	end
 
-	-- Give ghost abilities
-	local humanoid = character:FindFirstChildOfClass("Humanoid")
-	if humanoid then
-		humanoid.WalkSpeed = 30 -- Ghosts move faster
-		humanoid.JumpPower = 100 -- Can jump higher
-	end
-
-	-- Add proximity prompts to all living players
-	addProximityPromptsToPlayers()
-
-	-- Continuously update prompts for new players
-	task.spawn(function()
-		while isGhost do
-			task.wait(2)
-			addProximityPromptsToPlayers()
-		end
-	end)
-
-	-- Add ghostly sound
+	-- Add ghostly sound (client-side only)
 	local ghostSound = Instance.new("Sound")
 	ghostSound.Name = "GhostlyWhisper"
 	ghostSound.SoundId = "rbxassetid://5396480890"
@@ -412,157 +390,127 @@ local function becomeGhost()
 	print("Hunt other players as a ghost!")
 end
 
--- Create proximity prompts on all living players
-local function addProximityPromptsToPlayers()
-	for _, otherPlayer in pairs(Players:GetPlayers()) do
-		if otherPlayer ~= player and otherPlayer.Character then
-			local otherHumanoid = otherPlayer.Character:FindFirstChildOfClass("Humanoid")
-			local otherRoot = otherPlayer.Character:FindFirstChild("HumanoidRootPart")
+-- Listen for server events telling us someone is trying to possess us
+if startPossessionEvent then
+	startPossessionEvent.OnClientEvent:Connect(function(ghostPlayerName)
+		beginPossessionEffects(ghostPlayerName)
+	end)
+end
 
-			if otherHumanoid and otherHumanoid.Health > 0 and otherRoot then
-				-- Check if prompt already exists
-				if not otherRoot:FindFirstChild("PossessionPrompt") then
-					local prompt = Instance.new("ProximityPrompt")
-					prompt.Name = "PossessionPrompt"
-					prompt.ActionText = "Possess"
-					prompt.ObjectText = otherPlayer.Name
-					prompt.HoldDuration = 30 -- 30 seconds to possess
-					prompt.MaxActivationDistance = 10
-					prompt.RequiresLineOfSight = false
-					prompt.Parent = otherRoot
+if cancelPossessionEvent then
+	cancelPossessionEvent.OnClientEvent:Connect(function()
+		endPossessionEffects()
+	end)
+end
 
-					-- Handle possession attempt
-					prompt.Triggered:Connect(function(playerWhoTriggered)
-						if playerWhoTriggered == player and isGhost then
-							startPossession(otherPlayer)
-						end
-					end)
-
-					-- Visual feedback during hold
-					prompt.PromptButtonHoldBegan:Connect(function(playerWhoTriggered)
-						if playerWhoTriggered == player and isGhost then
-							print("Starting possession of " .. otherPlayer.Name .. "...")
-							beginPossessionEffects(otherPlayer)
-						end
-					end)
-
-					prompt.PromptButtonHoldEnded:Connect(function(playerWhoTriggered)
-						if playerWhoTriggered == player then
-							print("Possession interrupted!")
-							endPossessionEffects(otherPlayer)
-						end
-					end)
-				end
-			end
-		end
-	end
+if completePossessionEvent then
+	completePossessionEvent.OnClientEvent:Connect(function(targetPlayer)
+		completePossession(targetPlayer)
+	end)
 end
 
 -- Start possession effects on target player (they see this)
-local function beginPossessionEffects(targetPlayer)
-	-- This will be received by the target player's client
-	-- We'll use a RemoteEvent in actual implementation, but for local script we'll simulate
-	if targetPlayer == player then
-		-- Create possession warning GUI
-		local possessionGui = Instance.new("ScreenGui")
-		possessionGui.Name = "PossessionWarning"
-		possessionGui.DisplayOrder = 100
-		possessionGui.Parent = playerGui
+local function beginPossessionEffects(ghostPlayerName)
+	-- This runs on the target player's client when someone tries to possess them
+	print(ghostPlayerName .. " is trying to possess you!")
 
-		local warningText = Instance.new("TextLabel")
-		warningText.Size = UDim2.new(0.8, 0, 0.2, 0)
-		warningText.Position = UDim2.new(0.1, 0, 0.4, 0)
-		warningText.BackgroundTransparency = 1
-		warningText.Text = "YOU'RE GETTING POSSESSED"
-		warningText.Font = Enum.Font.SourceSansBold
-		warningText.TextScaled = true
-		warningText.TextColor3 = Color3.fromRGB(255, 0, 0)
-		warningText.TextStrokeTransparency = 0
-		warningText.ZIndex = 100
-		warningText.Parent = possessionGui
+	-- Create possession warning GUI
+	local possessionGui = Instance.new("ScreenGui")
+	possessionGui.Name = "PossessionWarning"
+	possessionGui.DisplayOrder = 100
+	possessionGui.Parent = playerGui
 
-		-- Freeze player
-		local humanoid = character:FindFirstChildOfClass("Humanoid")
-		if humanoid then
-			humanoid.WalkSpeed = 0
-			humanoid.JumpPower = 0
+	local warningText = Instance.new("TextLabel")
+	warningText.Size = UDim2.new(0.8, 0, 0.2, 0)
+	warningText.Position = UDim2.new(0.1, 0, 0.4, 0)
+	warningText.BackgroundTransparency = 1
+	warningText.Text = "YOU'RE GETTING POSSESSED BY " .. ghostPlayerName:upper()
+	warningText.Font = Enum.Font.SourceSansBold
+	warningText.TextScaled = true
+	warningText.TextColor3 = Color3.fromRGB(255, 0, 0)
+	warningText.TextStrokeTransparency = 0
+	warningText.ZIndex = 100
+	warningText.Parent = possessionGui
+
+	-- Freeze player
+	local humanoid = character:FindFirstChildOfClass("Humanoid")
+	if humanoid then
+		humanoid.WalkSpeed = 0
+		humanoid.JumpPower = 0
+	end
+
+	-- Trippy visual effects
+	task.spawn(function()
+		local originalFOV = camera.FieldOfView
+		local startTime = tick()
+
+		while tick() - startTime < 30 and possessionGui.Parent do
+			-- Crazy FOV changes
+			camera.FieldOfView = originalFOV + math.sin(tick() * 10) * 30
+
+			-- Random camera rotations
+			camera.CFrame = camera.CFrame * CFrame.Angles(
+				math.rad(math.random(-5, 5)),
+				math.rad(math.random(-5, 5)),
+				math.rad(math.random(-5, 5))
+			)
+
+			-- Flicker text
+			warningText.TextColor3 = Color3.fromRGB(
+				math.random(200, 255),
+				math.random(0, 50),
+				math.random(0, 50)
+			)
+
+			task.wait()
 		end
 
-		-- Trippy visual effects
-		task.spawn(function()
-			local originalFOV = camera.FieldOfView
-			local startTime = tick()
+		camera.FieldOfView = originalFOV
+	end)
 
-			while tick() - startTime < 30 and possessionGui.Parent do
-				-- Crazy FOV changes
-				camera.FieldOfView = originalFOV + math.sin(tick() * 10) * 30
+	-- Color correction for trippy effect
+	local colorCorrection = Instance.new("ColorCorrectionEffect")
+	colorCorrection.Name = "PossessionEffect"
+	colorCorrection.Parent = Lighting
 
-				-- Random camera rotations
-				camera.CFrame = camera.CFrame * CFrame.Angles(
-					math.rad(math.random(-5, 5)),
-					math.rad(math.random(-5, 5)),
-					math.rad(math.random(-5, 5))
-				)
-
-				-- Flicker text
-				warningText.TextColor3 = Color3.fromRGB(
-					math.random(200, 255),
-					math.random(0, 50),
-					math.random(0, 50)
-				)
-
-				task.wait()
-			end
-
-			camera.FieldOfView = originalFOV
-		end)
-
-		-- Color correction for trippy effect
-		local colorCorrection = Instance.new("ColorCorrectionEffect")
-		colorCorrection.Name = "PossessionEffect"
-		colorCorrection.Parent = Lighting
-
-		task.spawn(function()
-			local startTime = tick()
-			while tick() - startTime < 30 and colorCorrection.Parent do
-				colorCorrection.Saturation = math.sin(tick() * 3) * 2
-				colorCorrection.TintColor = Color3.fromRGB(
-					math.random(200, 255),
-					math.random(0, 100),
-					math.random(0, 100)
-				)
-				task.wait()
-			end
-		end)
-	end
+	task.spawn(function()
+		local startTime = tick()
+		while tick() - startTime < 30 and colorCorrection.Parent do
+			colorCorrection.Saturation = math.sin(tick() * 3) * 2
+			colorCorrection.TintColor = Color3.fromRGB(
+				math.random(200, 255),
+				math.random(0, 100),
+				math.random(0, 100)
+			)
+			task.wait()
+		end
+	end)
 end
 
 -- End possession effects if interrupted
-local function endPossessionEffects(targetPlayer)
-	if targetPlayer == player then
-		-- Remove GUI
-		local possessionGui = playerGui:FindFirstChild("PossessionWarning")
-		if possessionGui then
-			possessionGui:Destroy()
-		end
+local function endPossessionEffects()
+	-- Remove GUI
+	local possessionGui = playerGui:FindFirstChild("PossessionWarning")
+	if possessionGui then
+		possessionGui:Destroy()
+	end
 
-		-- Restore movement
-		local humanoid = character:FindFirstChildOfClass("Humanoid")
-		if humanoid then
-			humanoid.WalkSpeed = 16
-			humanoid.JumpPower = 50
-		end
+	-- Restore movement
+	local humanoid = character:FindFirstChildOfClass("Humanoid")
+	if humanoid then
+		humanoid.WalkSpeed = 16
+		humanoid.JumpPower = 50
+	end
 
-		-- Remove effects
-		local colorCorrection = Lighting:FindFirstChild("PossessionEffect")
-		if colorCorrection then
-			colorCorrection:Destroy()
-		end
+	-- Remove effects
+	local colorCorrection = Lighting:FindFirstChild("PossessionEffect")
+	if colorCorrection then
+		colorCorrection:Destroy()
 	end
 end
 
 -- Complete the possession (ghost takes control)
-local function startPossession(targetPlayer)
+local function completePossession(targetPlayer)
 	isPossessing = true
 	possessedPlayer = targetPlayer
 
@@ -570,9 +518,6 @@ local function startPossession(targetPlayer)
 	print("POSSESSION COMPLETE!")
 	print("You now control " .. targetPlayer.Name)
 	print("=================================")
-
-	-- Clean up ghost effects
-	endPossessionEffects(targetPlayer)
 
 	-- Hide ghost body
 	for _, part in pairs(character:GetDescendants()) do
