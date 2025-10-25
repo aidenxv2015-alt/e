@@ -377,6 +377,18 @@ local function becomeGhost()
 		end
 	end
 
+	-- IMPORTANT: Make sure your own prompt stays disabled even as a ghost
+	task.spawn(function()
+		task.wait(1)
+		if humanoidRootPart then
+			local prompt = humanoidRootPart:FindFirstChild("PossessionPrompt")
+			if prompt then
+				prompt.Enabled = false
+				print("Ensured your prompt is disabled as a ghost")
+			end
+		end
+	end)
+
 	-- Tell server we became a ghost (server will handle visual transformation and prompts)
 	if becomeGhostEvent then
 		becomeGhostEvent:FireServer()
@@ -395,6 +407,7 @@ local function becomeGhost()
 
 	print("You are now in the spirit realm...")
 	print("Hunt other players as a ghost!")
+	print("You can still only possess OTHER players!")
 end
 
 -- Listen for server events telling us someone is trying to possess us
@@ -747,6 +760,8 @@ end
 -- Transform to FAKE HUMAN with special abilities
 local function transformToFakeHuman()
 	isFakeHuman = true
+	isGhost = false -- No longer a ghost
+
 	print("=================================")
 	print("YOU ARE NOW A FAKE HUMAN!")
 	print("Press Z to spread arms 100 studs")
@@ -774,6 +789,18 @@ local function transformToFakeHuman()
 		humanoid.WalkSpeed = 16
 		humanoid.JumpPower = 50
 	end
+
+	-- IMPORTANT: Still keep your own prompt disabled as a fake human
+	task.spawn(function()
+		task.wait(1)
+		if humanoidRootPart then
+			local prompt = humanoidRootPart:FindFirstChild("PossessionPrompt")
+			if prompt then
+				prompt.Enabled = false
+				print("Ensured your prompt is disabled as fake human")
+			end
+		end
+	end)
 
 	-- Create "chill" aura for nearby players (50 studs)
 	task.spawn(function()
@@ -1201,28 +1228,40 @@ local function twistHead()
 	end)
 end
 
+-- Disable proximity prompt on your own character
+local function disableOwnProximityPrompt()
+	-- Wait for prompt to be added by server
+	task.wait(2)
+
+	if character and humanoidRootPart then
+		local prompt = humanoidRootPart:FindFirstChild("PossessionPrompt")
+		if prompt then
+			prompt.Enabled = false
+			print("Disabled your own proximity prompt")
+		end
+	end
+end
+
 -- Handle character respawn
 player.CharacterAdded:Connect(function(newCharacter)
 	character = newCharacter
 	humanoidRootPart = character:WaitForChild("HumanoidRootPart")
+
+	-- IMPORTANT: Disable the prompt on your own character so you can't possess yourself
+	disableOwnProximityPrompt()
 
 	-- Reset ghost state on respawn
 	if isGhost then
 		isGhost = false
 		isPossessing = false
 		possessedPlayer = nil
+		isFakeHuman = false
+		isBeingForced = false
 
-		-- Remove all possession prompts
-		for _, otherPlayer in pairs(Players:GetPlayers()) do
-			if otherPlayer.Character then
-				local otherRoot = otherPlayer.Character:FindFirstChild("HumanoidRootPart")
-				if otherRoot then
-					local prompt = otherRoot:FindFirstChild("PossessionPrompt")
-					if prompt then
-						prompt:Destroy()
-					end
-				end
-			end
+		-- Disconnect force walk
+		if forceWalkConnection then
+			forceWalkConnection:Disconnect()
+			forceWalkConnection = nil
 		end
 
 		-- Clean up ghost sounds
@@ -1231,10 +1270,39 @@ player.CharacterAdded:Connect(function(newCharacter)
 			ghostSound:Destroy()
 		end
 
+		-- Clean up all GUIs
+		local forceGui = playerGui:FindFirstChild("ForceWalkGui")
+		if forceGui then forceGui:Destroy() end
+
+		local controlGui = playerGui:FindFirstChild("ControlGui")
+		if controlGui then controlGui:Destroy() end
+
+		local abilityGui = playerGui:FindFirstChild("FakeHumanAbilities")
+		if abilityGui then abilityGui:Destroy() end
+
+		local chillGui = playerGui:FindFirstChild("ChillEffect")
+		if chillGui then chillGui:Destroy() end
+
 		-- Reset camera
 		camera.CameraSubject = character:FindFirstChildOfClass("Humanoid")
 
 		print("You have returned to the living world...")
+	end
+end)
+
+-- Disable prompt on initial character load
+disableOwnProximityPrompt()
+
+-- Continuously monitor and disable your own prompt (in case it gets re-enabled)
+task.spawn(function()
+	while task.wait(3) do
+		if character and humanoidRootPart then
+			local prompt = humanoidRootPart:FindFirstChild("PossessionPrompt")
+			if prompt and prompt.Enabled then
+				prompt.Enabled = false
+				print("Re-disabled your own proximity prompt")
+			end
+		end
 	end
 end)
 

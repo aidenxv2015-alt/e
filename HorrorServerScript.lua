@@ -206,6 +206,9 @@ Players.PlayerAdded:Connect(function(player)
 			-- They respawned normally, remove ghost state
 			removeGhostState(player)
 		end
+
+		-- IMPORTANT: Tell the client to disable their own prompt
+		-- (We'll handle this on the client side)
 	end)
 end)
 
