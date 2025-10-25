@@ -18,6 +18,9 @@ local playerGui = player:WaitForChild("PlayerGui")
 
 local isNightmareActive = false
 local shadowEntity = nil
+local isGhost = false
+local isPossessing = false
+local possessedPlayer = nil
 
 -- Creepy whisper messages that appear randomly
 local whisperMessages = {
@@ -319,6 +322,261 @@ local function showWhisper(whisperText)
 	end)
 end
 
+-- Create ghost form after death
+local function becomeGhost()
+	isGhost = true
+	print("=================================")
+	print("YOU ARE NOW A GHOST")
+	print("Haunt other players and POSSESS them!")
+	print("=================================")
+
+	-- Make character into ghost
+	for _, part in pairs(character:GetDescendants()) do
+		if part:IsA("BasePart") then
+			part.Transparency = 0.7
+			part.Material = Enum.Material.ForceField
+			part.CanCollide = false
+
+			-- Add ghostly effect
+			if not part:FindFirstChild("GhostEffect") then
+				local effect = Instance.new("ParticleEmitter")
+				effect.Name = "GhostEffect"
+				effect.Texture = "rbxasset://textures/particles/smoke_main.dds"
+				effect.Color = ColorSequence.new(Color3.fromRGB(200, 200, 255))
+				effect.Size = NumberSequence.new(0.5)
+				effect.Transparency = NumberSequence.new(0.6)
+				effect.Lifetime = NumberRange.new(1, 2)
+				effect.Rate = 10
+				effect.Speed = NumberRange.new(1)
+				effect.Parent = part
+			end
+		elseif part:IsA("Decal") or part:IsA("Texture") then
+			part.Transparency = 0.7
+		end
+	end
+
+	-- Give ghost abilities
+	local humanoid = character:FindFirstChildOfClass("Humanoid")
+	if humanoid then
+		humanoid.WalkSpeed = 30 -- Ghosts move faster
+		humanoid.JumpPower = 100 -- Can jump higher
+	end
+
+	-- Add proximity prompts to all living players
+	addProximityPromptsToPlayers()
+
+	-- Continuously update prompts for new players
+	task.spawn(function()
+		while isGhost do
+			task.wait(2)
+			addProximityPromptsToPlayers()
+		end
+	end)
+
+	-- Add ghostly sound
+	local ghostSound = Instance.new("Sound")
+	ghostSound.Name = "GhostlyWhisper"
+	ghostSound.SoundId = "rbxassetid://5396480890"
+	ghostSound.Volume = 0.5
+	ghostSound.Looped = true
+	ghostSound.Parent = camera
+	ghostSound:Play()
+end
+
+-- Create proximity prompts on all living players
+local function addProximityPromptsToPlayers()
+	for _, otherPlayer in pairs(Players:GetPlayers()) do
+		if otherPlayer ~= player and otherPlayer.Character then
+			local otherHumanoid = otherPlayer.Character:FindFirstChildOfClass("Humanoid")
+			local otherRoot = otherPlayer.Character:FindFirstChild("HumanoidRootPart")
+
+			if otherHumanoid and otherHumanoid.Health > 0 and otherRoot then
+				-- Check if prompt already exists
+				if not otherRoot:FindFirstChild("PossessionPrompt") then
+					local prompt = Instance.new("ProximityPrompt")
+					prompt.Name = "PossessionPrompt"
+					prompt.ActionText = "Possess"
+					prompt.ObjectText = otherPlayer.Name
+					prompt.HoldDuration = 30 -- 30 seconds to possess
+					prompt.MaxActivationDistance = 10
+					prompt.RequiresLineOfSight = false
+					prompt.Parent = otherRoot
+
+					-- Handle possession attempt
+					prompt.Triggered:Connect(function(playerWhoTriggered)
+						if playerWhoTriggered == player and isGhost then
+							startPossession(otherPlayer)
+						end
+					end)
+
+					-- Visual feedback during hold
+					prompt.PromptButtonHoldBegan:Connect(function(playerWhoTriggered)
+						if playerWhoTriggered == player and isGhost then
+							print("Starting possession of " .. otherPlayer.Name .. "...")
+							beginPossessionEffects(otherPlayer)
+						end
+					end)
+
+					prompt.PromptButtonHoldEnded:Connect(function(playerWhoTriggered)
+						if playerWhoTriggered == player then
+							print("Possession interrupted!")
+							endPossessionEffects(otherPlayer)
+						end
+					end)
+				end
+			end
+		end
+	end
+end
+
+-- Start possession effects on target player (they see this)
+local function beginPossessionEffects(targetPlayer)
+	-- This will be received by the target player's client
+	-- We'll use a RemoteEvent in actual implementation, but for local script we'll simulate
+	if targetPlayer == player then
+		-- Create possession warning GUI
+		local possessionGui = Instance.new("ScreenGui")
+		possessionGui.Name = "PossessionWarning"
+		possessionGui.DisplayOrder = 100
+		possessionGui.Parent = playerGui
+
+		local warningText = Instance.new("TextLabel")
+		warningText.Size = UDim2.new(0.8, 0, 0.2, 0)
+		warningText.Position = UDim2.new(0.1, 0, 0.4, 0)
+		warningText.BackgroundTransparency = 1
+		warningText.Text = "YOU'RE GETTING POSSESSED"
+		warningText.Font = Enum.Font.SourceSansBold
+		warningText.TextScaled = true
+		warningText.TextColor3 = Color3.fromRGB(255, 0, 0)
+		warningText.TextStrokeTransparency = 0
+		warningText.ZIndex = 100
+		warningText.Parent = possessionGui
+
+		-- Freeze player
+		local humanoid = character:FindFirstChildOfClass("Humanoid")
+		if humanoid then
+			humanoid.WalkSpeed = 0
+			humanoid.JumpPower = 0
+		end
+
+		-- Trippy visual effects
+		task.spawn(function()
+			local originalFOV = camera.FieldOfView
+			local startTime = tick()
+
+			while tick() - startTime < 30 and possessionGui.Parent do
+				-- Crazy FOV changes
+				camera.FieldOfView = originalFOV + math.sin(tick() * 10) * 30
+
+				-- Random camera rotations
+				camera.CFrame = camera.CFrame * CFrame.Angles(
+					math.rad(math.random(-5, 5)),
+					math.rad(math.random(-5, 5)),
+					math.rad(math.random(-5, 5))
+				)
+
+				-- Flicker text
+				warningText.TextColor3 = Color3.fromRGB(
+					math.random(200, 255),
+					math.random(0, 50),
+					math.random(0, 50)
+				)
+
+				task.wait()
+			end
+
+			camera.FieldOfView = originalFOV
+		end)
+
+		-- Color correction for trippy effect
+		local colorCorrection = Instance.new("ColorCorrectionEffect")
+		colorCorrection.Name = "PossessionEffect"
+		colorCorrection.Parent = Lighting
+
+		task.spawn(function()
+			local startTime = tick()
+			while tick() - startTime < 30 and colorCorrection.Parent do
+				colorCorrection.Saturation = math.sin(tick() * 3) * 2
+				colorCorrection.TintColor = Color3.fromRGB(
+					math.random(200, 255),
+					math.random(0, 100),
+					math.random(0, 100)
+				)
+				task.wait()
+			end
+		end)
+	end
+end
+
+-- End possession effects if interrupted
+local function endPossessionEffects(targetPlayer)
+	if targetPlayer == player then
+		-- Remove GUI
+		local possessionGui = playerGui:FindFirstChild("PossessionWarning")
+		if possessionGui then
+			possessionGui:Destroy()
+		end
+
+		-- Restore movement
+		local humanoid = character:FindFirstChildOfClass("Humanoid")
+		if humanoid then
+			humanoid.WalkSpeed = 16
+			humanoid.JumpPower = 50
+		end
+
+		-- Remove effects
+		local colorCorrection = Lighting:FindFirstChild("PossessionEffect")
+		if colorCorrection then
+			colorCorrection:Destroy()
+		end
+	end
+end
+
+-- Complete the possession (ghost takes control)
+local function startPossession(targetPlayer)
+	isPossessing = true
+	possessedPlayer = targetPlayer
+
+	print("=================================")
+	print("POSSESSION COMPLETE!")
+	print("You now control " .. targetPlayer.Name)
+	print("=================================")
+
+	-- Clean up ghost effects
+	endPossessionEffects(targetPlayer)
+
+	-- Hide ghost body
+	for _, part in pairs(character:GetDescendants()) do
+		if part:IsA("BasePart") then
+			part.Transparency = 1
+		end
+	end
+
+	-- Switch camera to possessed player
+	if targetPlayer.Character then
+		camera.CameraSubject = targetPlayer.Character:FindFirstChildOfClass("Humanoid")
+
+		-- Create control notification
+		local controlGui = Instance.new("ScreenGui")
+		controlGui.Name = "ControlNotification"
+		controlGui.Parent = playerGui
+
+		local notifText = Instance.new("TextLabel")
+		notifText.Size = UDim2.new(1, 0, 0.1, 0)
+		notifText.Position = UDim2.new(0, 0, 0.9, 0)
+		notifText.BackgroundTransparency = 1
+		notifText.Text = "CONTROLLING: " .. targetPlayer.Name
+		notifText.Font = Enum.Font.SourceSansBold
+		notifText.TextScaled = true
+		notifText.TextColor3 = Color3.fromRGB(255, 0, 0)
+		notifText.TextStrokeTransparency = 0.5
+		notifText.Parent = controlGui
+	end
+
+	-- Note: Full control transfer would require server-side implementation
+	-- In a real game, you'd use RemoteEvents to transfer inputs to the possessed player
+end
+
 -- Possession and death sequence
 local function possessionAndDeath(sounds, scareFrame, whisperText)
 	print("=================================")
@@ -379,9 +637,11 @@ local function possessionAndDeath(sounds, scareFrame, whisperText)
 
 		print("=================================")
 		print("YOU FELL TO YOUR DEATH")
-		print("The nightmare has ended...")
-		print("Press 'H' if you dare to try again")
 		print("=================================")
+
+		-- Wait a moment then become ghost
+		task.wait(2)
+		becomeGhost()
 	end
 
 	return true
@@ -569,16 +829,15 @@ local function activateNightmare()
 			-- Wait a moment for dramatic effect
 			task.wait(2)
 
-			-- Cleanup after death
+			-- Cleanup after death but keep nightmare active for ghost mode
 			isNightmareActive = false
 
-			-- Restore everything to normal
-			Lighting.Brightness = originalBrightness
-			Lighting.Ambient = originalAmbient
-			Lighting.ColorShift_Top = originalColorShift
-			Lighting.ClockTime = originalClockTime
+			-- Keep lighting dark for ghost atmosphere
+			Lighting.Brightness = 0.3
+			Lighting.Ambient = Color3.fromRGB(50, 50, 70)
+			Lighting.ColorShift_Top = Color3.fromRGB(100, 100, 150)
 
-			-- Stop and clean up sounds
+			-- Stop horror sounds
 			for _, sound in pairs(sounds) do
 				sound:Stop()
 				sound:Destroy()
@@ -589,13 +848,19 @@ local function activateNightmare()
 				shadowEntity:Destroy()
 			end
 
-			-- Remove GUI
+			-- Remove horror GUI but keep some atmosphere
 			if gui then
-				gui:Destroy()
+				-- Remove most elements but keep vignette
+				local vignette = gui:FindFirstChild("Vignette")
+				for _, child in pairs(gui:GetChildren()) do
+					if child ~= vignette then
+						child:Destroy()
+					end
+				end
 			end
 
-			print("Everything has returned to normal...")
-			print("But the horror is always waiting...")
+			print("You are now in the spirit realm...")
+			print("Hunt other players as a ghost!")
 		end)
 	end
 end
@@ -613,6 +878,43 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
 	end
 end)
 
+-- Handle character respawn
+player.CharacterAdded:Connect(function(newCharacter)
+	character = newCharacter
+	humanoidRootPart = character:WaitForChild("HumanoidRootPart")
+
+	-- Reset ghost state on respawn
+	if isGhost then
+		isGhost = false
+		isPossessing = false
+		possessedPlayer = nil
+
+		-- Remove all possession prompts
+		for _, otherPlayer in pairs(Players:GetPlayers()) do
+			if otherPlayer.Character then
+				local otherRoot = otherPlayer.Character:FindFirstChild("HumanoidRootPart")
+				if otherRoot then
+					local prompt = otherRoot:FindFirstChild("PossessionPrompt")
+					if prompt then
+						prompt:Destroy()
+					end
+				end
+			end
+		end
+
+		-- Clean up ghost sounds
+		local ghostSound = camera:FindFirstChild("GhostlyWhisper")
+		if ghostSound then
+			ghostSound:Destroy()
+		end
+
+		-- Reset camera
+		camera.CameraSubject = character:FindFirstChildOfClass("Humanoid")
+
+		print("You have returned to the living world...")
+	end
+end)
+
 print("======================================")
 print("ULTIMATE HORROR SCRIPT LOADED")
 print("Press 'H' to begin the nightmare...")
@@ -621,5 +923,7 @@ print("WARNING: This will be terrifying")
 print("A shadow entity will hunt you down")
 print("If it catches you, you will be POSSESSED")
 print("You'll be forced to jump to your death")
+print("But death is not the end...")
+print("You'll return as a GHOST to haunt others!")
 print("Try to survive... if you can")
 print("======================================")
