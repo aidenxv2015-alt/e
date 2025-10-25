@@ -1,6 +1,7 @@
 -- HORROR NIGHTMARE SERVER SCRIPT
 -- Place this in ServerScriptService
 -- Handles multiplayer ghost and possession mechanics
+-- EVERYONE can see proximity prompts on EVERYONE and possess them!
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -33,71 +34,63 @@ cancelPossessionEvent.Parent = remoteFolder
 -- Track ghost players
 local ghostPlayers = {}
 
--- Function to add proximity prompts to all living players for a ghost
-local function addProximityPromptsForGhost(ghostPlayer)
-	for _, targetPlayer in pairs(Players:GetPlayers()) do
-		if targetPlayer ~= ghostPlayer and targetPlayer.Character then
-			local humanoid = targetPlayer.Character:FindFirstChildOfClass("Humanoid")
-			local rootPart = targetPlayer.Character:FindFirstChild("HumanoidRootPart")
+-- Function to add a proximity prompt to a player for everyone to see
+local function addProximityPromptToPlayer(targetPlayer)
+	if not targetPlayer.Character then return end
 
-			if humanoid and humanoid.Health > 0 and rootPart and not ghostPlayers[targetPlayer.UserId] then
-				-- Check if prompt already exists for this ghost
-				local promptName = "PossessionPrompt_" .. ghostPlayer.Name
-				if not rootPart:FindFirstChild(promptName) then
-					local prompt = Instance.new("ProximityPrompt")
-					prompt.Name = promptName
-					prompt.ActionText = "Possess"
-					prompt.ObjectText = targetPlayer.Name
-					prompt.HoldDuration = 30 -- 30 seconds to possess
-					prompt.MaxActivationDistance = 10
-					prompt.RequiresLineOfSight = false
-					prompt.Parent = rootPart
+	local humanoid = targetPlayer.Character:FindFirstChildOfClass("Humanoid")
+	local rootPart = targetPlayer.Character:FindFirstChild("HumanoidRootPart")
 
-					-- Handle possession start
-					prompt.PromptButtonHoldBegan:Connect(function(playerWhoTriggered)
-						if playerWhoTriggered == ghostPlayer and ghostPlayers[ghostPlayer.UserId] then
-							print(ghostPlayer.Name .. " started possessing " .. targetPlayer.Name)
-							startPossessionEvent:FireClient(targetPlayer, ghostPlayer.Name)
-						end
-					end)
+	if humanoid and humanoid.Health > 0 and rootPart then
+		-- Check if prompt already exists
+		if not rootPart:FindFirstChild("PossessionPrompt") then
+			local prompt = Instance.new("ProximityPrompt")
+			prompt.Name = "PossessionPrompt"
+			prompt.ActionText = "Possess"
+			prompt.ObjectText = targetPlayer.Name
+			prompt.HoldDuration = 30 -- 30 seconds to possess
+			prompt.MaxActivationDistance = 10
+			prompt.RequiresLineOfSight = false
+			prompt.Parent = rootPart
 
-					-- Handle possession cancel
-					prompt.PromptButtonHoldEnded:Connect(function(playerWhoTriggered)
-						if playerWhoTriggered == ghostPlayer then
-							print("Possession interrupted!")
-							cancelPossessionEvent:FireClient(targetPlayer)
-						end
-					end)
+			print("Added proximity prompt to " .. targetPlayer.Name)
 
-					-- Handle possession complete
-					prompt.Triggered:Connect(function(playerWhoTriggered)
-						if playerWhoTriggered == ghostPlayer and ghostPlayers[ghostPlayer.UserId] then
-							print(ghostPlayer.Name .. " successfully possessed " .. targetPlayer.Name)
-							completePossessionEvent:FireClient(ghostPlayer, targetPlayer)
-							cancelPossessionEvent:FireClient(targetPlayer)
-						end
-					end)
-
-					print("Added proximity prompt on " .. targetPlayer.Name .. " for ghost " .. ghostPlayer.Name)
+			-- Handle possession start (when someone starts holding E)
+			prompt.PromptButtonHoldBegan:Connect(function(playerWhoTriggered)
+				if playerWhoTriggered ~= targetPlayer then
+					print(playerWhoTriggered.Name .. " started possessing " .. targetPlayer.Name)
+					-- Tell the target player they're being possessed
+					startPossessionEvent:FireClient(targetPlayer, playerWhoTriggered.Name)
 				end
-			end
+			end)
+
+			-- Handle possession cancel (when they release E)
+			prompt.PromptButtonHoldEnded:Connect(function(playerWhoTriggered)
+				if playerWhoTriggered ~= targetPlayer then
+					print("Possession interrupted!")
+					-- Tell the target player to stop effects
+					cancelPossessionEvent:FireClient(targetPlayer)
+				end
+			end)
+
+			-- Handle possession complete (held for full 30 seconds)
+			prompt.Triggered:Connect(function(playerWhoTriggered)
+				if playerWhoTriggered ~= targetPlayer then
+					print(playerWhoTriggered.Name .. " successfully possessed " .. targetPlayer.Name)
+					-- Tell the ghost they successfully possessed
+					completePossessionEvent:FireClient(playerWhoTriggered, targetPlayer)
+					-- Tell the target to stop trippy effects
+					cancelPossessionEvent:FireClient(targetPlayer)
+				end
+			end)
 		end
 	end
 end
 
--- Function to remove all proximity prompts created by a ghost
-local function removeProximityPromptsForGhost(ghostPlayer)
-	local promptName = "PossessionPrompt_" .. ghostPlayer.Name
-	for _, targetPlayer in pairs(Players:GetPlayers()) do
-		if targetPlayer.Character then
-			local rootPart = targetPlayer.Character:FindFirstChild("HumanoidRootPart")
-			if rootPart then
-				local prompt = rootPart:FindFirstChild(promptName)
-				if prompt then
-					prompt:Destroy()
-				end
-			end
-		end
+-- Function to add proximity prompts to ALL players
+local function addProximityPromptsToAllPlayers()
+	for _, player in pairs(Players:GetPlayers()) do
+		addProximityPromptToPlayer(player)
 	end
 end
 
@@ -139,42 +132,30 @@ becomeGhostEvent.OnServerEvent:Connect(function(player)
 			humanoid.JumpPower = 100
 		end
 	end
-
-	-- Add proximity prompts to all living players
-	addProximityPromptsForGhost(player)
-
-	-- Continuously add prompts to new players
-	task.spawn(function()
-		while ghostPlayers[player.UserId] do
-			task.wait(2)
-			addProximityPromptsForGhost(player)
-		end
-	end)
 end)
 
 -- Handle player leaving ghost mode (respawn, etc.)
 local function removeGhostState(player)
 	if ghostPlayers[player.UserId] then
 		ghostPlayers[player.UserId] = nil
-		removeProximityPromptsForGhost(player)
 		print(player.Name .. " is no longer a ghost")
 	end
 end
 
--- Handle player respawn
+-- When a new player joins
 Players.PlayerAdded:Connect(function(player)
 	player.CharacterAdded:Connect(function(character)
-		-- Wait a moment for character to load
+		-- Wait for character to load
 		task.wait(1)
 
-		-- If they were a ghost, remove ghost state
-		if ghostPlayers[player.UserId] then
-			-- Check if they still look like a ghost
-			local rootPart = character:FindFirstChild("HumanoidRootPart")
-			if rootPart and rootPart.Transparency < 0.5 then
-				-- They respawned normally, remove ghost state
-				removeGhostState(player)
-			end
+		-- Add proximity prompt to this new player
+		addProximityPromptToPlayer(player)
+
+		-- Check if they were a ghost before respawning
+		local rootPart = character:FindFirstChild("HumanoidRootPart")
+		if rootPart and rootPart.Transparency < 0.5 then
+			-- They respawned normally, remove ghost state
+			removeGhostState(player)
 		end
 	end)
 end)
@@ -184,33 +165,20 @@ Players.PlayerRemoving:Connect(function(player)
 	removeGhostState(player)
 end)
 
--- Handle new players joining - add prompts for them from existing ghosts
-Players.PlayerAdded:Connect(function(newPlayer)
-	newPlayer.CharacterAdded:Connect(function()
-		task.wait(1) -- Wait for character to fully load
+-- Add prompts to all existing players when server starts
+task.wait(2) -- Wait for players to load
+addProximityPromptsToAllPlayers()
 
-		-- Add prompts from all existing ghosts
-		for userId, _ in pairs(ghostPlayers) do
-			local ghostPlayer = Players:GetPlayerByUserId(userId)
-			if ghostPlayer then
-				addProximityPromptsForGhost(ghostPlayer)
-			end
-		end
-	end)
-end)
-
--- Debug command to check ghost players
-game:GetService("RunService").Heartbeat:Connect(function()
-	-- Clean up invalid ghost players
-	for userId, _ in pairs(ghostPlayers) do
-		local player = Players:GetPlayerByUserId(userId)
-		if not player then
-			ghostPlayers[userId] = nil
-		end
+-- Continuously ensure all players have prompts
+task.spawn(function()
+	while true do
+		task.wait(5)
+		addProximityPromptsToAllPlayers()
 	end
 end)
 
 print("======================================")
 print("HORROR SERVER SCRIPT LOADED")
-print("Multiplayer ghost system active")
+print("ALL players can possess ALL players!")
+print("Proximity prompts on everyone!")
 print("======================================")
