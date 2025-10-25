@@ -1276,12 +1276,13 @@ end
 player.CharacterAdded:Connect(function(newCharacter)
 	character = newCharacter
 	humanoidRootPart = character:WaitForChild("HumanoidRootPart")
+	camera = workspace.CurrentCamera -- Update camera reference too
 
 	-- IMPORTANT: Disable the prompt on your own character so you can't possess yourself
 	disableOwnProximityPrompt()
 
 	-- Reset ghost state on respawn
-	if isGhost then
+	if isGhost or isFakeHuman then
 		isGhost = false
 		isPossessing = false
 		possessedPlayer = nil
@@ -1312,6 +1313,12 @@ player.CharacterAdded:Connect(function(newCharacter)
 
 		local chillGui = playerGui:FindFirstChild("ChillEffect")
 		if chillGui then chillGui:Destroy() end
+
+		local nightmareGui = playerGui:FindFirstChild("NightmareGui")
+		if nightmareGui then nightmareGui:Destroy() end
+
+		local possessionWarning = playerGui:FindFirstChild("PossessionWarning")
+		if possessionWarning then possessionWarning:Destroy() end
 
 		-- Reset camera
 		camera.CameraSubject = character:FindFirstChildOfClass("Humanoid")
