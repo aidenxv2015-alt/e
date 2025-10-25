@@ -646,26 +646,35 @@ local function forceWalkTowardGhost(ghostPlayer)
 
 	-- Pathfinding to ghost
 	forceWalkConnection = RunService.Heartbeat:Connect(function()
-		if not ghostPlayer or not ghostPlayer.Character or not isBeingForced then
+		-- Get fresh character references
+		local currentChar = player.Character
+		if not currentChar or not isBeingForced then
+			if forceWalkConnection then forceWalkConnection:Disconnect() end
+			return
+		end
+
+		if not ghostPlayer or not ghostPlayer.Character then
 			if forceWalkConnection then forceWalkConnection:Disconnect() end
 			return
 		end
 
 		local ghostRoot = ghostPlayer.Character:FindFirstChild("HumanoidRootPart")
-		if not ghostRoot then return end
+		local currentRoot = currentChar:FindFirstChild("HumanoidRootPart")
+		local currentHumanoid = currentChar:FindFirstChildOfClass("Humanoid")
+
+		if not ghostRoot or not currentRoot or not currentHumanoid then return end
 
 		-- Move toward ghost
-		if humanoid then
-			humanoid:MoveTo(ghostRoot.Position)
-		end
+		currentHumanoid:MoveTo(ghostRoot.Position)
 
 		-- Check if we're close (will be handled by server for touch)
-		local distance = (humanoidRootPart.Position - ghostRoot.Position).Magnitude
+		local distance = (currentRoot.Position - ghostRoot.Position).Magnitude
 		if distance < 5 then
 			-- We've reached them!
 			isBeingForced = false
 			if forceWalkConnection then
 				forceWalkConnection:Disconnect()
+				forceWalkConnection = nil
 			end
 			if forceGui then
 				forceGui:Destroy()
@@ -805,14 +814,21 @@ local function transformToFakeHuman()
 	-- Create "chill" aura for nearby players (50 studs)
 	task.spawn(function()
 		while isFakeHuman do
-			for _, otherPlayer in pairs(Players:GetPlayers()) do
-				if otherPlayer ~= player and otherPlayer.Character then
-					local otherRoot = otherPlayer.Character:FindFirstChild("HumanoidRootPart")
-					if otherRoot then
-						local distance = (humanoidRootPart.Position - otherRoot.Position).Magnitude
-						if distance < 50 then
-							-- They feel the chill!
-							applyChillEffect(otherPlayer, distance)
+			-- Get fresh character reference
+			local currentChar = player.Character
+			if currentChar then
+				local currentRoot = currentChar:FindFirstChild("HumanoidRootPart")
+				if currentRoot then
+					for _, otherPlayer in pairs(Players:GetPlayers()) do
+						if otherPlayer ~= player and otherPlayer.Character then
+							local otherRoot = otherPlayer.Character:FindFirstChild("HumanoidRootPart")
+							if otherRoot then
+								local distance = (currentRoot.Position - otherRoot.Position).Magnitude
+								if distance < 50 then
+									-- They feel the chill!
+									applyChillEffect(otherPlayer, distance)
+								end
+							end
 						end
 					end
 				end
@@ -1113,41 +1129,22 @@ local function activateNightmare()
 	-- No need to monitor for death since we don't actually die
 end
 
--- Activation input
-UserInputService.InputBegan:Connect(function(input, gameProcessed)
-	if gameProcessed then return end
-
-	if input.KeyCode == Enum.KeyCode.H then
-		print("=================================")
-		print("INITIATING NIGHTMARE PROTOCOL...")
-		print("=================================")
-		task.wait(1)
-		activateNightmare()
-	end
-
-	-- FAKE HUMAN ABILITIES
-	if isFakeHuman then
-		-- Z: Spread arms 100 studs
-		if input.KeyCode == Enum.KeyCode.Z then
-			spreadArms()
-		end
-
-		-- F: Twist head 360 degrees
-		if input.KeyCode == Enum.KeyCode.F then
-			twistHead()
-		end
-	end
-end)
-
--- Fake Human Ability: Spread Arms 100 studs
+-- Fake Human Ability: Spread Arms 100 studs (DEFINED BEFORE INPUT HANDLER)
 local function spreadArms()
 	print("SPREADING ARMS 100 STUDS!")
 
-	local leftArm = character:FindFirstChild("Left Arm") or character:FindFirstChild("LeftUpperArm")
-	local rightArm = character:FindFirstChild("Right Arm") or character:FindFirstChild("RightUpperArm")
-	local torso = character:FindFirstChild("Torso") or character:FindFirstChild("UpperTorso")
+	-- Get fresh character reference
+	local currentChar = player.Character
+	if not currentChar then return end
 
-	if not leftArm or not rightArm or not torso then return end
+	local leftArm = currentChar:FindFirstChild("Left Arm") or currentChar:FindFirstChild("LeftUpperArm")
+	local rightArm = currentChar:FindFirstChild("Right Arm") or currentChar:FindFirstChild("RightUpperArm")
+	local torso = currentChar:FindFirstChild("Torso") or currentChar:FindFirstChild("UpperTorso")
+
+	if not leftArm or not rightArm or not torso then
+		warn("Could not find arms or torso!")
+		return
+	end
 
 	-- Store original positions
 	local leftOriginalCFrame = leftArm.CFrame
@@ -1200,10 +1197,17 @@ end
 local function twistHead()
 	print("TWISTING HEAD 360 DEGREES!")
 
-	local head = character:FindFirstChild("Head")
-	if not head then return end
+	-- Get fresh character reference
+	local currentChar = player.Character
+	if not currentChar then return end
 
-	local neck = head:FindFirstChild("Neck") or head.Parent:FindFirstChild("Neck")
+	local head = currentChar:FindFirstChild("Head")
+	if not head then
+		warn("Could not find head!")
+		return
+	end
+
+	local neck = head:FindFirstChild("Neck") or currentChar:FindFirstChild("Neck")
 
 	-- Spin head on all axes
 	task.spawn(function()
@@ -1227,6 +1231,32 @@ local function twistHead()
 		print("Head twist complete!")
 	end)
 end
+
+-- Activation input (NOW DEFINED AFTER FUNCTIONS)
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+	if gameProcessed then return end
+
+	if input.KeyCode == Enum.KeyCode.H then
+		print("=================================")
+		print("INITIATING NIGHTMARE PROTOCOL...")
+		print("=================================")
+		task.wait(1)
+		activateNightmare()
+	end
+
+	-- FAKE HUMAN ABILITIES
+	if isFakeHuman then
+		-- Z: Spread arms 100 studs
+		if input.KeyCode == Enum.KeyCode.Z then
+			spreadArms()
+		end
+
+		-- F: Twist head 360 degrees
+		if input.KeyCode == Enum.KeyCode.F then
+			twistHead()
+		end
+	end
+end)
 
 -- Disable proximity prompt on your own character
 local function disableOwnProximityPrompt()
@@ -1296,11 +1326,16 @@ disableOwnProximityPrompt()
 -- Continuously monitor and disable your own prompt (in case it gets re-enabled)
 task.spawn(function()
 	while task.wait(3) do
-		if character and humanoidRootPart then
-			local prompt = humanoidRootPart:FindFirstChild("PossessionPrompt")
-			if prompt and prompt.Enabled then
-				prompt.Enabled = false
-				print("Re-disabled your own proximity prompt")
+		-- Always get fresh character reference
+		local currentChar = player.Character
+		if currentChar then
+			local currentRoot = currentChar:FindFirstChild("HumanoidRootPart")
+			if currentRoot then
+				local prompt = currentRoot:FindFirstChild("PossessionPrompt")
+				if prompt and prompt.Enabled then
+					prompt.Enabled = false
+					print("Re-disabled your own proximity prompt")
+				end
 			end
 		end
 	end
