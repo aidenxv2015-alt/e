@@ -1,7 +1,8 @@
 -- ULTIMATE ROBLOX HORROR NIGHTMARE SCRIPT
 -- Place this in StarterPlayer > StarterPlayerScripts as a LocalScript
 -- WARNING: Extremely scary - includes stalking shadow entity, reality distortion, psychological horror
--- The entity will hunt you down. If it catches you, you'll be POSSESSED and forced to jump to your death!
+-- The entity will hunt you down. If it catches you, your SOUL will be ripped from your body!
+-- You'll become a GHOST and can possess other players by holding E for 30 seconds!
 -- Press "H" to trigger the NIGHTMARE MODE
 
 local UserInputService = game:GetService("UserInputService")
@@ -325,10 +326,35 @@ end
 -- Create ghost form after death
 local function becomeGhost()
 	isGhost = true
+	isNightmareActive = false -- End nightmare mode
+
 	print("=================================")
 	print("YOU ARE NOW A GHOST")
 	print("Haunt other players and POSSESS them!")
 	print("=================================")
+
+	-- Clean up nightmare elements
+	if shadowEntity then
+		shadowEntity:Destroy()
+		shadowEntity = nil
+	end
+
+	-- Change lighting to ghost realm atmosphere
+	Lighting.Brightness = 0.3
+	Lighting.Ambient = Color3.fromRGB(50, 50, 70)
+	Lighting.ColorShift_Top = Color3.fromRGB(100, 100, 150)
+
+	-- Clean up horror GUI but keep minimal atmosphere
+	local nightmareGui = playerGui:FindFirstChild("NightmareGui")
+	if nightmareGui then
+		-- Remove most elements but keep vignette for atmosphere
+		local vignette = nightmareGui:FindFirstChild("Vignette")
+		for _, child in pairs(nightmareGui:GetChildren()) do
+			if child ~= vignette then
+				child:Destroy()
+			end
+		end
+	end
 
 	-- Make character into ghost
 	for _, part in pairs(character:GetDescendants()) do
@@ -381,6 +407,9 @@ local function becomeGhost()
 	ghostSound.Looped = true
 	ghostSound.Parent = camera
 	ghostSound:Play()
+
+	print("You are now in the spirit realm...")
+	print("Hunt other players as a ghost!")
 end
 
 -- Create proximity prompts on all living players
@@ -629,18 +658,16 @@ local function possessionAndDeath(sounds, scareFrame, whisperText)
 		task.wait(1)
 		bodyVelocity:Destroy()
 
-		-- Wait for the fall and death
+		-- Wait for the fall
 		task.wait(3)
 
-		-- Force death
-		humanoid.Health = 0
-
+		-- Instead of dying, transform into ghost!
 		print("=================================")
-		print("YOU FELL TO YOUR DEATH")
+		print("YOUR SOUL HAS LEFT YOUR BODY")
 		print("=================================")
 
-		-- Wait a moment then become ghost
-		task.wait(2)
+		-- Immediately become ghost without dying
+		task.wait(1)
 		becomeGhost()
 	end
 
@@ -822,47 +849,8 @@ local function activateNightmare()
 		end
 	end)
 
-	-- Monitor for player death (from possession)
-	local humanoid = character:FindFirstChildOfClass("Humanoid")
-	if humanoid then
-		humanoid.Died:Connect(function()
-			-- Wait a moment for dramatic effect
-			task.wait(2)
-
-			-- Cleanup after death but keep nightmare active for ghost mode
-			isNightmareActive = false
-
-			-- Keep lighting dark for ghost atmosphere
-			Lighting.Brightness = 0.3
-			Lighting.Ambient = Color3.fromRGB(50, 50, 70)
-			Lighting.ColorShift_Top = Color3.fromRGB(100, 100, 150)
-
-			-- Stop horror sounds
-			for _, sound in pairs(sounds) do
-				sound:Stop()
-				sound:Destroy()
-			end
-
-			-- Remove entity
-			if shadowEntity then
-				shadowEntity:Destroy()
-			end
-
-			-- Remove horror GUI but keep some atmosphere
-			if gui then
-				-- Remove most elements but keep vignette
-				local vignette = gui:FindFirstChild("Vignette")
-				for _, child in pairs(gui:GetChildren()) do
-					if child ~= vignette then
-						child:Destroy()
-					end
-				end
-			end
-
-			print("You are now in the spirit realm...")
-			print("Hunt other players as a ghost!")
-		end)
-	end
+	-- Note: Ghost transformation happens in possessionAndDeath() function
+	-- No need to monitor for death since we don't actually die
 end
 
 -- Activation input
@@ -922,8 +910,9 @@ print("")
 print("WARNING: This will be terrifying")
 print("A shadow entity will hunt you down")
 print("If it catches you, you will be POSSESSED")
-print("You'll be forced to jump to your death")
-print("But death is not the end...")
-print("You'll return as a GHOST to haunt others!")
+print("Your soul will be ripped from your body")
+print("You'll become a GHOST to haunt others!")
+print("Possess other players by holding E for 30s")
+print("They'll trip out while you take control")
 print("Try to survive... if you can")
 print("======================================")
