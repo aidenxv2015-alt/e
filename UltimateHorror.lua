@@ -21,12 +21,16 @@ local playerGui = player:WaitForChild("PlayerGui")
 -- Wait for RemoteEvents from server
 local remoteFolder = ReplicatedStorage:WaitForChild("HorrorRemotes", 10)
 local becomeGhostEvent, startPossessionEvent, completePossessionEvent, cancelPossessionEvent
+local forceWalkEvent, grantControlEvent, transformToFakeHumanEvent
 
 if remoteFolder then
 	becomeGhostEvent = remoteFolder:WaitForChild("BecomeGhost", 5)
 	startPossessionEvent = remoteFolder:WaitForChild("StartPossession", 5)
 	completePossessionEvent = remoteFolder:WaitForChild("CompletePossession", 5)
 	cancelPossessionEvent = remoteFolder:WaitForChild("CancelPossession", 5)
+	forceWalkEvent = remoteFolder:WaitForChild("ForceWalk", 5)
+	grantControlEvent = remoteFolder:WaitForChild("GrantControl", 5)
+	transformToFakeHumanEvent = remoteFolder:WaitForChild("TransformToFakeHuman", 5)
 else
 	warn("HorrorRemotes folder not found! Make sure server script is loaded.")
 end
@@ -36,6 +40,9 @@ local shadowEntity = nil
 local isGhost = false
 local isPossessing = false
 local possessedPlayer = nil
+local isFakeHuman = false
+local isBeingForced = false
+local forceWalkConnection = nil
 
 -- Creepy whisper messages that appear randomly
 local whisperMessages = {
@@ -409,6 +416,27 @@ if completePossessionEvent then
 	end)
 end
 
+-- Handle forced walk toward ghost
+if forceWalkEvent then
+	forceWalkEvent.OnClientEvent:Connect(function(ghostPlayer)
+		forceWalkTowardGhost(ghostPlayer)
+	end)
+end
+
+-- Handle 60 second control grant
+if grantControlEvent then
+	grantControlEvent.OnClientEvent:Connect(function(targetPlayer)
+		grantControlOfPlayer(targetPlayer)
+	end)
+end
+
+-- Handle transformation to fake human
+if transformToFakeHumanEvent then
+	transformToFakeHumanEvent.OnClientEvent:Connect(function()
+		transformToFakeHuman()
+	end)
+end
+
 -- Start possession effects on target player (they see this)
 local function beginPossessionEffects(ghostPlayerName)
 	-- This runs on the target player's client when someone tries to possess them
@@ -549,6 +577,266 @@ local function completePossession(targetPlayer)
 
 	-- Note: Full control transfer would require server-side implementation
 	-- In a real game, you'd use RemoteEvents to transfer inputs to the possessed player
+end
+
+-- Force player to walk toward ghost (super scary!)
+local function forceWalkTowardGhost(ghostPlayer)
+	isBeingForced = true
+	print("=================================")
+	print("YOU'RE BEING FORCED TOWARD THE GHOST!")
+	print("=================================")
+
+	-- Stop trippy effects
+	endPossessionEffects()
+
+	-- Create TERRIFYING approach GUI
+	local forceGui = Instance.new("ScreenGui")
+	forceGui.Name = "ForceWalkGui"
+	forceGui.DisplayOrder = 150
+	forceGui.Parent = playerGui
+
+	-- Darkening vignette
+	local vignette = Instance.new("ImageLabel")
+	vignette.Size = UDim2.new(1, 0, 1, 0)
+	vignette.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+	vignette.BackgroundTransparency = 0.3
+	vignette.BorderSizePixel = 0
+	vignette.ZIndex = 1
+	vignette.Parent = forceGui
+
+	-- Warning text
+	local warningText = Instance.new("TextLabel")
+	warningText.Size = UDim2.new(1, 0, 0.15, 0)
+	warningText.Position = UDim2.new(0, 0, 0.42, 0)
+	warningText.BackgroundTransparency = 1
+	warningText.Text = "YOU CAN'T RESIST..."
+	warningText.Font = Enum.Font.SourceSansBold
+	warningText.TextScaled = true
+	warningText.TextColor3 = Color3.fromRGB(255, 255, 255)
+	warningText.TextStrokeTransparency = 0
+	warningText.ZIndex = 2
+	warningText.Parent = forceGui
+
+	-- Pulsing text effect
+	task.spawn(function()
+		while forceGui.Parent and isBeingForced do
+			warningText.TextTransparency = 0.3 + math.sin(tick() * 3) * 0.3
+			task.wait()
+		end
+	end)
+
+	-- Force walk at 5 walkspeed
+	local humanoid = character:FindFirstChildOfClass("Humanoid")
+	if humanoid then
+		humanoid.WalkSpeed = 5
+	end
+
+	-- Pathfinding to ghost
+	forceWalkConnection = RunService.Heartbeat:Connect(function()
+		if not ghostPlayer or not ghostPlayer.Character or not isBeingForced then
+			if forceWalkConnection then forceWalkConnection:Disconnect() end
+			return
+		end
+
+		local ghostRoot = ghostPlayer.Character:FindFirstChild("HumanoidRootPart")
+		if not ghostRoot then return end
+
+		-- Move toward ghost
+		if humanoid then
+			humanoid:MoveTo(ghostRoot.Position)
+		end
+
+		-- Check if we're close (will be handled by server for touch)
+		local distance = (humanoidRootPart.Position - ghostRoot.Position).Magnitude
+		if distance < 5 then
+			-- We've reached them!
+			isBeingForced = false
+			if forceWalkConnection then
+				forceWalkConnection:Disconnect()
+			end
+			if forceGui then
+				forceGui:Destroy()
+			end
+		end
+	end)
+
+	-- Scary visual effects during approach
+	task.spawn(function()
+		local startTime = tick()
+		while isBeingForced and forceGui.Parent do
+			-- Flicker screen
+			vignette.BackgroundTransparency = 0.3 + math.random(-10, 10) / 100
+
+			-- Change warning messages
+			local messages = {
+				"YOU CAN'T RESIST...",
+				"WALKING TOWARD YOUR DOOM...",
+				"IT'S CONTROLLING YOU...",
+				"NO ESCAPE...",
+				"CLOSER... CLOSER..."
+			}
+			warningText.Text = messages[math.random(1, #messages)]
+
+			-- Camera slight shake
+			camera.CFrame = camera.CFrame * CFrame.Angles(
+				math.rad(math.random(-1, 1)),
+				math.rad(math.random(-1, 1)),
+				0
+			)
+
+			task.wait(1)
+		end
+	end)
+end
+
+-- Grant 60 seconds of control to ghost
+local function grantControlOfPlayer(targetPlayer)
+	print("=================================")
+	print("YOU HAVE 60 SECONDS OF CONTROL!")
+	print("=================================")
+
+	-- Clean up any previous effects
+	isBeingForced = false
+	if forceWalkConnection then
+		forceWalkConnection:Disconnect()
+	end
+
+	local forceGui = playerGui:FindFirstChild("ForceWalkGui")
+	if forceGui then
+		forceGui:Destroy()
+	end
+
+	-- Switch camera to target
+	if targetPlayer.Character then
+		camera.CameraSubject = targetPlayer.Character:FindFirstChildOfClass("Humanoid")
+
+		-- Create countdown GUI
+		local controlGui = Instance.new("ScreenGui")
+		controlGui.Name = "ControlGui"
+		controlGui.Parent = playerGui
+
+		local timerText = Instance.new("TextLabel")
+		timerText.Size = UDim2.new(0.3, 0, 0.1, 0)
+		timerText.Position = UDim2.new(0.35, 0, 0.05, 0)
+		timerText.BackgroundTransparency = 0.5
+		timerText.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+		timerText.Text = "CONTROL: 60s"
+		timerText.Font = Enum.Font.SourceSansBold
+		timerText.TextScaled = true
+		timerText.TextColor3 = Color3.fromRGB(255, 0, 0)
+		timerText.Parent = controlGui
+
+		-- Countdown
+		task.spawn(function()
+			for i = 60, 0, -1 do
+				if not controlGui.Parent then break end
+				timerText.Text = "CONTROL: " .. i .. "s"
+				task.wait(1)
+			end
+
+			if controlGui.Parent then
+				controlGui:Destroy()
+			end
+
+			-- Reset camera after control ends
+			camera.CameraSubject = character:FindFirstChildOfClass("Humanoid")
+		end)
+	end
+end
+
+-- Transform to FAKE HUMAN with special abilities
+local function transformToFakeHuman()
+	isFakeHuman = true
+	print("=================================")
+	print("YOU ARE NOW A FAKE HUMAN!")
+	print("Press Z to spread arms 100 studs")
+	print("Press F to twist head 360 degrees")
+	print("=================================")
+
+	-- Reset to normal appearance
+	for _, part in pairs(character:GetDescendants()) do
+		if part:IsA("BasePart") then
+			part.Transparency = 0
+			part.Material = Enum.Material.Plastic
+			part.CanCollide = true
+
+			-- Remove ghost effects
+			local effect = part:FindFirstChild("GhostEffect")
+			if effect then
+				effect:Destroy()
+			end
+		end
+	end
+
+	-- Normal human stats
+	local humanoid = character:FindFirstChildOfClass("Humanoid")
+	if humanoid then
+		humanoid.WalkSpeed = 16
+		humanoid.JumpPower = 50
+	end
+
+	-- Create "chill" aura for nearby players (50 studs)
+	task.spawn(function()
+		while isFakeHuman do
+			for _, otherPlayer in pairs(Players:GetPlayers()) do
+				if otherPlayer ~= player and otherPlayer.Character then
+					local otherRoot = otherPlayer.Character:FindFirstChild("HumanoidRootPart")
+					if otherRoot then
+						local distance = (humanoidRootPart.Position - otherRoot.Position).Magnitude
+						if distance < 50 then
+							-- They feel the chill!
+							applyChillEffect(otherPlayer, distance)
+						end
+					end
+				end
+			end
+			task.wait(0.5)
+		end
+	end)
+
+	-- Create abilities GUI
+	local abilityGui = Instance.new("ScreenGui")
+	abilityGui.Name = "FakeHumanAbilities"
+	abilityGui.Parent = playerGui
+
+	local abilityText = Instance.new("TextLabel")
+	abilityText.Size = UDim2.new(0.4, 0, 0.15, 0)
+	abilityText.Position = UDim2.new(0.3, 0, 0.85, 0)
+	abilityText.BackgroundTransparency = 0.7
+	abilityText.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+	abilityText.Text = "FAKE HUMAN\nZ: Spread Arms | F: Twist Head"
+	abilityText.Font = Enum.Font.SourceSansBold
+	abilityText.TextScaled = true
+	abilityText.TextColor3 = Color3.fromRGB(255, 255, 255)
+	abilityText.Parent = abilityGui
+end
+
+-- Apply chill effect to nearby players (35% scary, no monster)
+local function applyChillEffect(targetPlayer, distance)
+	-- Calculate intensity based on distance (closer = more intense)
+	local intensity = 1 - (distance / 50) -- 0 to 1
+
+	-- This would fire to the target player's client
+	-- For now, we'll keep it local and just log
+	-- In full implementation, use RemoteEvent to target player
+
+	-- Create subtle scary effects (no monster!)
+	if targetPlayer == player then
+		-- We're feeling the chill ourselves
+		local chillGui = playerGui:FindFirstChild("ChillEffect")
+		if not chillGui then
+			chillGui = Instance.new("ScreenGui")
+			chillGui.Name = "ChillEffect"
+			chillGui.Parent = playerGui
+
+			local frame = Instance.new("Frame")
+			frame.Size = UDim2.new(1, 0, 1, 0)
+			frame.BackgroundColor3 = Color3.fromRGB(150, 200, 255) -- Cold blue tint
+			frame.BackgroundTransparency = 0.85 + (intensity * 0.1) -- More opaque when closer
+			frame.BorderSizePixel = 0
+			frame.Parent = chillGui
+		end
+	end
 end
 
 -- Possession and death sequence
@@ -809,7 +1097,109 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
 		task.wait(1)
 		activateNightmare()
 	end
+
+	-- FAKE HUMAN ABILITIES
+	if isFakeHuman then
+		-- Z: Spread arms 100 studs
+		if input.KeyCode == Enum.KeyCode.Z then
+			spreadArms()
+		end
+
+		-- F: Twist head 360 degrees
+		if input.KeyCode == Enum.KeyCode.F then
+			twistHead()
+		end
+	end
 end)
+
+-- Fake Human Ability: Spread Arms 100 studs
+local function spreadArms()
+	print("SPREADING ARMS 100 STUDS!")
+
+	local leftArm = character:FindFirstChild("Left Arm") or character:FindFirstChild("LeftUpperArm")
+	local rightArm = character:FindFirstChild("Right Arm") or character:FindFirstChild("RightUpperArm")
+	local torso = character:FindFirstChild("Torso") or character:FindFirstChild("UpperTorso")
+
+	if not leftArm or not rightArm or not torso then return end
+
+	-- Store original positions
+	local leftOriginalCFrame = leftArm.CFrame
+	local rightOriginalCFrame = rightArm.CFrame
+
+	-- Create stretchy arm parts
+	local leftStretch = Instance.new("Part")
+	leftStretch.Size = Vector3.new(100, 1, 1)
+	leftStretch.CFrame = torso.CFrame * CFrame.new(-50, 0, 0)
+	leftStretch.BrickColor = leftArm.BrickColor
+	leftStretch.Material = Enum.Material.Plastic
+	leftStretch.Anchored = true
+	leftStretch.CanCollide = false
+	leftStretch.Parent = workspace
+
+	local rightStretch = Instance.new("Part")
+	rightStretch.Size = Vector3.new(100, 1, 1)
+	rightStretch.CFrame = torso.CFrame * CFrame.new(50, 0, 0)
+	rightStretch.BrickColor = rightArm.BrickColor
+	rightStretch.Material = Enum.Material.Plastic
+	rightStretch.Anchored = true
+	rightStretch.CanCollide = false
+	rightStretch.Parent = workspace
+
+	-- Hide actual arms
+	leftArm.Transparency = 1
+	rightArm.Transparency = 1
+
+	-- Tween the stretchy arms outward
+	TweenService:Create(leftStretch, TweenInfo.new(0.5), {
+		CFrame = torso.CFrame * CFrame.new(-50, 0, 0)
+	}):Play()
+
+	TweenService:Create(rightStretch, TweenInfo.new(0.5), {
+		CFrame = torso.CFrame * CFrame.new(50, 0, 0)
+	}):Play()
+
+	-- Hold for 2 seconds then retract
+	task.wait(2)
+
+	leftStretch:Destroy()
+	rightStretch:Destroy()
+	leftArm.Transparency = 0
+	rightArm.Transparency = 0
+
+	print("Arms retracted!")
+end
+
+-- Fake Human Ability: Twist Head 360 degrees
+local function twistHead()
+	print("TWISTING HEAD 360 DEGREES!")
+
+	local head = character:FindFirstChild("Head")
+	if not head then return end
+
+	local neck = head:FindFirstChild("Neck") or head.Parent:FindFirstChild("Neck")
+
+	-- Spin head on all axes
+	task.spawn(function()
+		local startTime = tick()
+		local duration = 2
+
+		while tick() - startTime < duration do
+			local progress = (tick() - startTime) / duration
+			local angle = progress * 360
+
+			-- Rotate on all axes (X, Y, Z)
+			head.CFrame = head.CFrame * CFrame.Angles(
+				math.rad(10), -- X rotation
+				math.rad(10), -- Y rotation
+				math.rad(10)  -- Z rotation
+			)
+
+			task.wait()
+		end
+
+		print("Head twist complete!")
+	end)
+end
 
 -- Handle character respawn
 player.CharacterAdded:Connect(function(newCharacter)
