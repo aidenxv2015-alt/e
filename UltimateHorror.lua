@@ -592,48 +592,93 @@ local function completePossession(targetPlayer)
 	-- In a real game, you'd use RemoteEvents to transfer inputs to the possessed player
 end
 
--- Force player to walk toward ghost (super scary!)
+-- Force player to walk toward ghost (THE SCARIEST THING EVER - NO MUSIC, NO MONSTER)
 local function forceWalkTowardGhost(ghostPlayer)
 	isBeingForced = true
 	print("=================================")
-	print("YOU'RE BEING FORCED TOWARD THE GHOST!")
+	print("SOMETHING IS CONTROLLING YOU...")
 	print("=================================")
 
 	-- Stop trippy effects
 	endPossessionEffects()
 
-	-- Create TERRIFYING approach GUI
+	-- STOP ALL SOUNDS - Pure silence is terrifying
+	for _, sound in pairs(workspace:GetDescendants()) do
+		if sound:IsA("Sound") then
+			sound.Volume = 0
+		end
+	end
+
+	-- Create THE SCARIEST APPROACH GUI (no monster, just pure dread)
 	local forceGui = Instance.new("ScreenGui")
 	forceGui.Name = "ForceWalkGui"
 	forceGui.DisplayOrder = 150
 	forceGui.Parent = playerGui
 
-	-- Darkening vignette
-	local vignette = Instance.new("ImageLabel")
+	-- Pure black vignette (closes in slowly)
+	local vignette = Instance.new("Frame")
 	vignette.Size = UDim2.new(1, 0, 1, 0)
 	vignette.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-	vignette.BackgroundTransparency = 0.3
+	vignette.BackgroundTransparency = 0.9
 	vignette.BorderSizePixel = 0
 	vignette.ZIndex = 1
 	vignette.Parent = forceGui
 
-	-- Warning text
+	-- Minimal, disturbing text
 	local warningText = Instance.new("TextLabel")
-	warningText.Size = UDim2.new(1, 0, 0.15, 0)
-	warningText.Position = UDim2.new(0, 0, 0.42, 0)
+	warningText.Size = UDim2.new(1, 0, 0.1, 0)
+	warningText.Position = UDim2.new(0, 0, 0.45, 0)
 	warningText.BackgroundTransparency = 1
-	warningText.Text = "YOU CAN'T RESIST..."
-	warningText.Font = Enum.Font.SourceSansBold
+	warningText.Text = ""
+	warningText.Font = Enum.Font.SourceSans
 	warningText.TextScaled = true
 	warningText.TextColor3 = Color3.fromRGB(255, 255, 255)
-	warningText.TextStrokeTransparency = 0
+	warningText.TextStrokeTransparency = 1
 	warningText.ZIndex = 2
 	warningText.Parent = forceGui
 
-	-- Pulsing text effect
+	-- Slowly fading disturbing messages (no sound needed)
+	local scaryMessages = {
+		"",
+		"you can't stop walking",
+		"",
+		"",
+		"your body isn't yours",
+		"",
+		"",
+		"it's getting closer",
+		"",
+		"",
+	}
+
+	-- Text appears and disappears slowly
+	task.spawn(function()
+		local messageIndex = 1
+		while forceGui.Parent and isBeingForced do
+			-- Slowly fade in message
+			warningText.Text = scaryMessages[messageIndex]
+			for i = 1, 0, -0.05 do
+				if not forceGui.Parent then break end
+				warningText.TextTransparency = i
+				task.wait(0.05)
+			end
+			task.wait(2)
+			-- Slowly fade out
+			for i = 0, 1, 0.05 do
+				if not forceGui.Parent then break end
+				warningText.TextTransparency = i
+				task.wait(0.05)
+			end
+			task.wait(0.5)
+			messageIndex = (messageIndex % #scaryMessages) + 1
+		end
+	end)
+
+	-- Vignette slowly closes in
 	task.spawn(function()
 		while forceGui.Parent and isBeingForced do
-			warningText.TextTransparency = 0.3 + math.sin(tick() * 3) * 0.3
+			local progress = math.min(1, (tick() % 10) / 10)
+			vignette.BackgroundTransparency = 0.9 - (progress * 0.5) -- Gets darker
 			task.wait()
 		end
 	end)
@@ -711,16 +756,21 @@ local function forceWalkTowardGhost(ghostPlayer)
 	end)
 end
 
--- Grant 60 seconds of control to ghost
+-- Grant 60 seconds of FULL CONTROL to ghost, then KILL the player
 local function grantControlOfPlayer(targetPlayer)
+	isPossessing = true
+	possessedPlayer = targetPlayer
+
 	print("=================================")
 	print("YOU HAVE 60 SECONDS OF CONTROL!")
+	print("THEY WILL DIE AFTER!")
 	print("=================================")
 
 	-- Clean up any previous effects
 	isBeingForced = false
 	if forceWalkConnection then
 		forceWalkConnection:Disconnect()
+		forceWalkConnection = nil
 	end
 
 	local forceGui = playerGui:FindFirstChild("ForceWalkGui")
@@ -728,7 +778,7 @@ local function grantControlOfPlayer(targetPlayer)
 		forceGui:Destroy()
 	end
 
-	-- Switch camera to target
+	-- Switch camera to target - FULL CONTROL
 	if targetPlayer.Character then
 		camera.CameraSubject = targetPlayer.Character:FindFirstChildOfClass("Humanoid")
 
@@ -742,7 +792,7 @@ local function grantControlOfPlayer(targetPlayer)
 		timerText.Position = UDim2.new(0.35, 0, 0.05, 0)
 		timerText.BackgroundTransparency = 0.5
 		timerText.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-		timerText.Text = "CONTROL: 60s"
+		timerText.Text = "POSSESSING: 60s"
 		timerText.Font = Enum.Font.SourceSansBold
 		timerText.TextScaled = true
 		timerText.TextColor3 = Color3.fromRGB(255, 0, 0)
@@ -752,16 +802,44 @@ local function grantControlOfPlayer(targetPlayer)
 		task.spawn(function()
 			for i = 60, 0, -1 do
 				if not controlGui.Parent then break end
-				timerText.Text = "CONTROL: " .. i .. "s"
+				timerText.Text = "POSSESSING: " .. i .. "s"
+				if i <= 10 then
+					timerText.TextColor3 = Color3.fromRGB(255, math.floor(i * 25.5), 0) -- Flashes red
+				end
 				task.wait(1)
 			end
 
+			-- TIME'S UP - KILL THE PLAYER
+			print("=================================")
+			print("POSSESSION TIME OVER")
+			print("KILLING PLAYER...")
+			print("=================================")
+
+			-- Clean up GUI
 			if controlGui.Parent then
 				controlGui:Destroy()
 			end
 
-			-- Reset camera after control ends
-			camera.CameraSubject = character:FindFirstChildOfClass("Humanoid")
+			-- KILL THE POSSESSED PLAYER (server should handle this, but we'll try client-side too)
+			if targetPlayer and targetPlayer.Character then
+				local targetHumanoid = targetPlayer.Character:FindFirstChildOfClass("Humanoid")
+				if targetHumanoid then
+					-- Request server to kill them
+					-- For now, just reset camera
+				end
+			end
+
+			-- Reset YOUR camera
+			local currentChar = player.Character
+			if currentChar then
+				camera.CameraSubject = currentChar:FindFirstChildOfClass("Humanoid")
+			end
+
+			-- Transform to FAKE HUMAN after killing them
+			print("=================================")
+			print("TRANSFORMING TO FAKE HUMAN...")
+			print("=================================")
+			transformToFakeHuman()
 		end)
 	end
 end
@@ -1331,17 +1409,43 @@ end)
 disableOwnProximityPrompt()
 
 -- Continuously monitor and disable your own prompt (in case it gets re-enabled)
+-- Also manage visibility of OTHER players' prompts based on ghost state
 task.spawn(function()
-	while task.wait(3) do
+	while task.wait(1) do
 		-- Always get fresh character reference
 		local currentChar = player.Character
 		if currentChar then
 			local currentRoot = currentChar:FindFirstChild("HumanoidRootPart")
 			if currentRoot then
+				-- ALWAYS disable your own prompt
 				local prompt = currentRoot:FindFirstChild("PossessionPrompt")
 				if prompt and prompt.Enabled then
 					prompt.Enabled = false
 					print("Re-disabled your own proximity prompt")
+				end
+			end
+
+			-- Manage OTHER players' prompts based on ghost state
+			for _, otherPlayer in pairs(Players:GetPlayers()) do
+				if otherPlayer ~= player and otherPlayer.Character then
+					local otherRoot = otherPlayer.Character:FindFirstChild("HumanoidRootPart")
+					if otherRoot then
+						local otherPrompt = otherRoot:FindFirstChild("PossessionPrompt")
+						if otherPrompt then
+							-- Only show prompts when you're a ghost
+							if isGhost then
+								if not otherPrompt.Enabled then
+									otherPrompt.Enabled = true
+									print("Enabled prompt on " .. otherPlayer.Name .. " (you're a ghost)")
+								end
+							else
+								if otherPrompt.Enabled then
+									otherPrompt.Enabled = false
+									print("Disabled prompt on " .. otherPlayer.Name .. " (you're not a ghost)")
+								end
+							end
+						end
+					end
 				end
 			end
 		end

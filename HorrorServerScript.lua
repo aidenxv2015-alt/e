@@ -115,14 +115,28 @@ local function addProximityPromptToPlayer(targetPlayer)
 							task.wait(0.1)
 							-- Check if either character died
 							if not ghostChar.Parent or not targetChar.Parent then return end
+							-- Update references in case they changed
+							ghostRoot = ghostChar:FindFirstChild("HumanoidRootPart")
+							targetRoot = targetChar:FindFirstChild("HumanoidRootPart")
+							if not ghostRoot or not targetRoot then return end
 						end
 
 						-- They touched! Grant 60 seconds of control
-						print(playerWhoTriggered.Name .. " touched " .. targetPlayer.Name .. " - granting control!")
+						print(playerWhoTriggered.Name .. " touched " .. targetPlayer.Name .. " - granting 60 seconds!")
 						grantControlEvent:FireClient(playerWhoTriggered, targetPlayer)
 
-						-- After 60 seconds, transform to fake human
+						-- After 60 seconds, KILL the possessed player
 						task.wait(60)
+						print("60 seconds up! Killing " .. targetPlayer.Name)
+
+						-- KILL THE POSSESSED PLAYER
+						local targetHumanoid = targetChar:FindFirstChildOfClass("Humanoid")
+						if targetHumanoid then
+							targetHumanoid.Health = 0
+							print(targetPlayer.Name .. " has been killed!")
+						end
+
+						-- Transform ghost to FAKE HUMAN
 						print(playerWhoTriggered.Name .. " transforming to FAKE HUMAN!")
 						transformToFakeHumanEvent:FireClient(playerWhoTriggered)
 
